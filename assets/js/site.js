@@ -107,6 +107,51 @@
   }
   if (REDUCE) $$('svg.map').forEach(function (svg) { try { svg.pauseAnimations(); svg.setCurrentTime(0); } catch (e) { /* noop */ } });
 
+  /* -------------------------------- opening: platform doors (home page) */
+  /* The sequence itself is pure CSS (it finishes even if this file never loads). Here: tidy up when it
+     ends, let any tap / key / scroll skip straight to the doors opening, and the replay button. */
+  var pd = $('.pd'), pdReplay = $('[data-pd-replay]');
+  var pdT0 = pd && H.classList.contains('pd-play') ? performance.now() : -1;
+  var PD_OPEN_MS = 2800, PD_COUNT_MS = 3500;
+  function pdPlaying() { return pdT0 >= 0 && H.classList.contains('pd-play') && !H.classList.contains('pd-done'); }
+  function pdStart(skip) {
+    H.classList.remove('pd-play', 'pd-done', 'pd-skip');
+    void H.offsetWidth;            /* restart every animation in the layer */
+    H.classList.add('pd-play');
+    if (skip) H.classList.add('pd-skip');
+    pdT0 = performance.now();
+  }
+  function pdSkip() {
+    if (!pdPlaying() || H.classList.contains('pd-skip')) return;
+    if (performance.now() - pdT0 > PD_OPEN_MS) return;   /* the doors are already opening */
+    pdStart(true);
+  }
+  if (pd) {
+    pd.addEventListener('animationend', function (ev) {
+      if (ev.target === pd && ev.animationName === 'pd-end') H.classList.add('pd-done');
+    });
+    pd.addEventListener('pointerdown', pdSkip);
+    W.addEventListener('keydown', pdSkip);
+    W.addEventListener('wheel', pdSkip, { passive: true });
+    W.addEventListener('touchmove', pdSkip, { passive: true });
+    W.addEventListener('scroll', function () { if (W.scrollY > 24) pdSkip(); }, { passive: true });
+    /* opened in a background tab: hold the sequence until the visitor actually looks at it */
+    var pdHiddenAt = 0;
+    var pdHold = function () {
+      if (!pdPlaying() || !pd.getAnimations) return;
+      var anims = pd.getAnimations({ subtree: true });
+      if (d.hidden) { pdHiddenAt = performance.now(); anims.forEach(function (a) { a.pause(); }); }
+      else if (pdHiddenAt) { pdT0 += performance.now() - pdHiddenAt; pdHiddenAt = 0; anims.forEach(function (a) { a.play(); }); }
+    };
+    d.addEventListener('visibilitychange', pdHold);
+    pdHold();
+    if (pdReplay) pdReplay.addEventListener('click', function () {
+      if (REDUCE) return;
+      W.scrollTo({ top: 0, behavior: 'instant' });
+      pdStart(false);
+    });
+  }
+
   /* --------------------------------------------------------- counters */
   var fmt = function (n) { return Math.round(n).toLocaleString('en-US'); };
   var counters = $$('[data-count]');
@@ -132,6 +177,8 @@
         if (en.isIntersecting) {
           var el = en.target;
           var delay = el.closest('.stats') ? 650 : 0;
+          /* the hero numbers start counting as the platform doors open */
+          if (pdPlaying() && el.closest('.hero')) delay = Math.max(delay, PD_COUNT_MS - (performance.now() - pdT0));
           setTimeout(function () { countUp(el); }, delay);
           cio.unobserve(el);
         }
